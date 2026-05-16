@@ -6,6 +6,8 @@ import { useVoiceCommands } from './hooks/useVoiceCommands';
 import { hasSceneChanged } from './utils/motionDetection';
 import './App.css';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+
 const LANGUAGES = [
   { code: 'en-US', name: 'English' },
   { code: 'es-ES', name: 'Español' },
@@ -288,7 +290,7 @@ function App() {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(async (pos) => {
         try {
-          await axios.post('/api/sos', {
+          await axios.post(`${API_BASE_URL}/api/sos`, {
             latitude: pos.coords.latitude,
             longitude: pos.coords.longitude,
             timestamp: new Date().toISOString()
@@ -357,7 +359,7 @@ function App() {
     formData.append('language', language.name);
 
     try {
-      const response = await axios.post('/api/analyze', formData);
+      const response = await axios.post(`${API_BASE_URL}/api/analyze`, formData);
       const data = response.data;
       setResult(data);
       
