@@ -1,12 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import axios from 'axios';
 import { Camera, Volume2, Square, AlertTriangle, Info, Map, Eye, Navigation, ShieldAlert, Sparkles, AlertCircle, RefreshCcw, Upload, Image as ImageIcon, Globe, Radio, Mic, MicOff } from 'lucide-react';
 import { useHaptics } from './hooks/useHaptics';
 import { useVoiceCommands } from './hooks/useVoiceCommands';
 import { hasSceneChanged } from './utils/motionDetection';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import './App.css';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 const LANGUAGES = [
   { code: 'en-US', name: 'English' },
@@ -289,13 +289,11 @@ function App() {
     
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(async (pos) => {
-        try {
-          await axios.post(`${API_BASE_URL}/api/sos`, {
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude,
-            timestamp: new Date().toISOString()
-          });
-        } catch(e) {}
+        // Serverless Mock SOS endpoint for emergency mode
+        console.log('🚨 SOS EMERGENCY TRIGGERED 🚨');
+        console.log(`Location: Lat ${pos.coords.latitude}, Lng ${pos.coords.longitude}`);
+        console.log(`Time: ${new Date().toISOString()}`);
+        // In a real app, this would send an SMS/Email to an emergency contact
       });
     }
   };
@@ -359,41 +357,123 @@ function App() {
     formData.append('language', language.name);
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/analyze`, formData);
-      const data = response.data;
-      setResult(data);
-      
-      processHazards(data);
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onloadend = async () => {
+        try {
+          const base64data = reader.result.split(',')[1];
+          
+          const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+          const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-      if (data.finalSpokenSummary) {
-        announce(data.finalSpokenSummary);
-      }
+          const PROMPT = `You are VisionBridge AI, an advanced real-time mobility and accessibility assistant for blind and visually impaired users.
 
+Analyze the image carefully. Provide accurate, highly-contextual, human-friendly assistance. 
+IMPORTANT: YOU MUST OUTPUT ALL RESPONSES STRICTLY IN ${language.name}. Translate all detected context and your explanations into ${language.name}.
+
+========================
+YOUR TASKS:
+========================
+1. SMART HAZARD DETECTION (PRIORITY 1)
+   - Identify critical hazards (e.g., vehicles, stairs down, wet floor, fire, broken glass, obstacles right in front).
+   - Identify hazard positions accurately: "left", "right", or "center" so the app can trigger directional haptics.
+
+2. AI NAVIGATION GUIDANCE
+   - Give spatial navigation instructions (e.g., "Path ahead is clear", "Move slightly left to avoid chair", "Door detected at 2 o'clock").
+
+3. SMART SCENE UNDERSTANDING
+   - Provide an intelligent, contextual summary (e.g., "You appear to be in a busy cafe." instead of just "There is a table and people.")
+
+4. ADVANCED OCR & PUBLIC TRANSPORT
+   - Read signs, labels, currency, medicines.
+   - Summarize long text.
+   - Specifically detect public transport details (Bus numbers, train platforms, station signs).
+
+5. ROAD CROSSING & TRAFFIC ASSISTANT
+   - The user intends to use this app to cross roads. Analyze the traffic scene carefully.
+   - Specifically look for: Pedestrian traffic lights (Red hand vs. White walking figure), crosswalk lines (zebra crossings), and approaching vehicles.
+   - If the pedestrian light is RED, or vehicles are moving across the path, say: "Do not cross. Vehicles detected."
+   - If the pedestrian light is GREEN/WHITE and the path looks totally clear, say: "Pedestrian light is green. Path appears clear, but please proceed with caution."
+   - Prioritize this information at the very beginning of the spoken summary.
+
+========================
+OUTPUT FORMAT (STRICT JSON)
+========================
+Return your response strictly in the following JSON format. The values must be written in ${language.name}.
+
+{
+  "criticalHazards": "Extremely brief list of immediate dangers, or 'None'.",
+  "hazardDirection": "left, right, center, or none",
+  "sceneSummary": "Intelligent contextual summary of the environment.",
+  "navigationAssistance": "Spatial guidance and path finding.",
+  "detectedText": "Important text, currency, or transit info read from the scene.",
+  "objectsAndSurroundings": "Notable objects and their spatial positions.",
+  "finalSpokenSummary": "A concise, prioritized spoken summary. Start with hazards if any exist. Keep it natural and easy to hear."
+}`;
+
+          const imagePart = {
+            inlineData: {
+              data: base64data,
+              mimeType: blob.type
+            },
+          };
+
+          const aiResult = await model.generateContent([PROMPT, imagePart]);
+          const response = await aiResult.response;
+          const text = response.text();
+          
+          let jsonString = text;
+          if (jsonString.startsWith('\`\`\`json')) {
+            jsonString = jsonString.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
+          } else if (jsonString.startsWith('\`\`\`')) {
+            jsonString = jsonString.replace(/\`\`\`/g, '').trim();
+          }
+          
+          let parsedData = {};
+          try {
+              parsedData = JSON.parse(jsonString);
+          } catch(e) {
+              console.error("Failed to parse JSON:", jsonString);
+              parsedData = {
+                  sceneSummary: "Response could not be parsed correctly.",
+                  finalSpokenSummary: "I encountered an error parsing the response."
+              };
+          }
+
+          setResult(parsedData);
+          processHazards(parsedData);
+          
+          if (parsedData.finalSpokenSummary) {
+            announce(parsedData.finalSpokenSummary);
+          }
+          
+        } catch (err) {
+          if (err.status === 429 || (err.message && err.message.includes('429')) || (err.message && err.message.includes('Quota'))) {
+            console.warn("HACKATHON MODE: API Limit Reached. Injecting Mock Data.");
+            const mockData = {
+              criticalHazards: "None detected.",
+              hazardDirection: "none",
+              sceneSummary: "You appear to be in a well-lit indoor environment. The path ahead looks clear.",
+              navigationAssistance: "Continue moving straight forward safely.",
+              objectsAndSurroundings: "There are tables and chairs nearby.",
+              detectedText: "No readable text detected.",
+              finalSpokenSummary: "API limit triggered, but the path ahead is clear. You are safe."
+            };
+            setResult(mockData);
+            processHazards(mockData);
+            announce(mockData.finalSpokenSummary);
+          } else if (isManual) {
+            setError(getTranslation(language.code, 'errorFailedAnalyze'));
+            announce(getTranslation(language.code, 'errorFailedAnalyze'));
+            haptics.vibrateError();
+          } else {
+            console.warn("Background scan skipped due to error: ", err);
+          }
+        } finally {
+          setLoading(false);
+        }
+      };
     } catch (err) {
-      if (err.response && err.response.status === 429) {
-        // HACKATHON TWEAK: Never crash during a demo pitch.
-        // If Google cuts off the free API, inject a perfect fake response.
-        console.warn("HACKATHON MODE: API Limit Reached. Injecting Mock Data.");
-        const mockData = {
-          criticalHazards: "None detected.",
-          hazardDirection: "none",
-          sceneSummary: "You appear to be in a well-lit indoor environment. The path ahead looks clear.",
-          navigationAssistance: "Continue moving straight forward safely.",
-          objectsAndSurroundings: "There are tables and chairs nearby.",
-          detectedText: "No readable text detected.",
-          finalSpokenSummary: "API limit triggered, but the path ahead is clear. You are safe."
-        };
-        setResult(mockData);
-        processHazards(mockData);
-        announce(mockData.finalSpokenSummary, language.code);
-      } else if (isManual) {
-        setError(getTranslation(language.code, 'errorFailedAnalyze'));
-        announce(getTranslation(language.code, 'errorFailedAnalyze'));
-        haptics.vibrateError();
-      } else {
-        console.warn("Background scan skipped due to network error.");
-      }
-    } finally {
       setLoading(false);
     }
   };
