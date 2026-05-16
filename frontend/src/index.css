@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #3b82f6;
+  --color-accent: #8b5cf6;
+  --color-danger: #ef4444;
+  --color-warning: #f59e0b;
+  --color-success: #10b981;
+  --color-dark: #0f172a;
+  --color-darker: #020617;
+}
+
+body {
+  background-color: var(--color-darker);
+  color: #f8fafc;
+  min-height: 100vh;
+  background-image: 
+    radial-gradient(circle at 0% 0%, rgba(139, 92, 246, 0.4) 0%, transparent 40%),
+    radial-gradient(circle at 100% 100%, rgba(59, 130, 246, 0.4) 0%, transparent 40%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+@layer utilities {
+  .glass-panel {
+    @apply bg-slate-800/60 backdrop-blur-md border border-white/10 rounded-3xl;
+  }
+  .gradient-text {
+    @apply bg-clip-text text-transparent bg-gradient-to-br from-primary to-accent;
+  }
+  .btn-primary {
+    @apply bg-gradient-to-br from-primary to-accent text-white shadow-[0_4px_15px_rgba(59,130,246,0.4)] hover:shadow-[0_6px_20px_rgba(59,130,246,0.4)] hover:-translate-y-0.5 transition-all duration-300;
+  }
+}
